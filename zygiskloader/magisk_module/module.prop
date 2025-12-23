@@ -4,4 +4,4 @@ version=${version}
 versionCode=${versionCode}
 author=${author}
 description=${description}
-updateJson=https://raw.githubusercontent.com/RaihanZxx/Zygisk-Loader/main/update.json
+updateJson=https://raw.githubusercontent.com/HanSoBored/Zygisk-Loader/main/update.json
