@@ -52,7 +52,7 @@ jobs:
       - name: Upload Artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: geoink-module-zip
+          name: zygiskloader-module-zip
           path: out/*.zip
           
   deploy:
@@ -65,7 +65,7 @@ jobs:
       - name: Download Artifacts
         uses: actions/download-artifact@v4
         with:
-          name: geoink-module-zip
+          name: zygiskloader-module-zip
           path: out/
       - name: Deploy to GitHub Releases
         uses: softprops/action-gh-release@v2
