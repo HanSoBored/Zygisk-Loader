@@ -4,6 +4,6 @@ ext {
     moduleName = "Zygisk-Loader Module"
     moduleAuthor = "HanSoBored"
     moduleDescription = "Zygisk-Loader is a dynamic payload injection module made with Rust for Zygisk."
-    moduleVersion = "v0.2.0"
-    moduleVersionCode = 3
+    moduleVersion = "v0.2.1"
+    moduleVersionCode = 4
 }

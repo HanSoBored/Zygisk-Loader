@@ -1,6 +1,6 @@
 {
-  "version": "v0.2.0",
-  "versionCode": 3,
-  "zipUrl": "https://github.com/HanSoBored/Zygisk-Loader/releases/download/v0.1.1/zygisk-loader-v0.1.1-release.zip",
+  "version": "v0.2.1",
+  "versionCode": 4,
+  "zipUrl": "https://github.com/HanSoBored/Zygisk-Loader/releases/download/v0.2.1/zygisk-loader-v0.2.1-release.zip",
   "changelog": "Dynamic payload injection module for Zygisk with hot-reload capabilities"
 }
