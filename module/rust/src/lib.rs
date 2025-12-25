@@ -12,11 +12,11 @@ extern crate android_logger;
 #[cfg(target_os = "android")]
 use android_logger::Config;
 #[cfg(target_os = "android")]
-use log::Level;
+use log::LevelFilter;
 
 use std::ffi::{CStr, CString};
 use std::fs::File;
-use std::io::{BufRead, BufReader, Read};
+use std::io::{BufRead, BufReader};
 use std::sync::OnceLock;
 
 pub use api::ZygiskApi;
@@ -41,7 +41,7 @@ impl ZygiskModule for ZygiskLoaderModule {
         #[cfg(target_os = "android")]
         android_logger::init_once(
             Config::default()
-                .with_min_level(Level::Debug) // Changed to Debug for more detailed logs
+                .with_max_level(LevelFilter::Debug) // Changed to Debug for more detailed logs
                 .with_tag("Zygisk_Loader"),
         );
 
@@ -53,33 +53,20 @@ impl ZygiskModule for ZygiskLoaderModule {
     }
 
     fn post_app_specialize(&self, _api: ZygiskApi, args: &AppSpecializeArgs) {
-        // Get process name from AppSpecializeArgs using a valid JNIEnv for this process
+        // Get process name from AppSpecializeArgs (nice_name is guaranteed to exist)
         let current_process = get_process_name_from_args_safe(args);
 
-        // If we couldn't get the process name from args, fall back to /proc/self/cmdline
-        let current_process = if current_process.is_empty() {
-            match get_process_name() {
-                Ok(name) => {
-                    debug!("Falling back to /proc/self/cmdline: '{}'", name);
-                    name
-                },
-                Err(e) => {
-                    error!("Failed to read /proc/self/cmdline: {:?}", e);
-                    return;
-                }
-            }
-        } else {
-            current_process
-        };
+        if current_process.is_empty() {
+            error!("Failed to get process name from AppSpecializeArgs!");
+            return;
+        }
 
-        // (This will spam logcat a bit, but important for diagnosis)
         debug!("Checking process: '{}'", current_process);
 
-        // 2. Read Target Config
+        // Read Target Config
         let target_package = match read_target_config() {
             Ok(target) => target,
             Err(e) => {
-                // if error here, it means permission/SELinux issue
                 error!("Failed to read config in {}: {:?}", CONFIG_PATH, e);
                 return;
             }
@@ -96,20 +83,7 @@ impl ZygiskModule for ZygiskLoaderModule {
     }
 }
 
-// Helper Function
-
-fn get_process_name() -> std::io::Result<String> {
-    let mut f = File::open("/proc/self/cmdline")?;
-    let mut buffer = Vec::new();
-    f.read_to_end(&mut buffer)?;
-
-    let name = buffer.split(|&c| c == 0)
-        .next()
-        .and_then(|slice| String::from_utf8(slice.to_vec()).ok())
-        .unwrap_or_default();
-
-    Ok(name)
-}
+// Helper Functions
 
 fn read_target_config() -> std::io::Result<String> {
     let f = File::open(CONFIG_PATH)?;
