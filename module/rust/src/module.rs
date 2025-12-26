@@ -12,7 +12,7 @@ pub trait ZygiskModule {
     ///
     /// A Zygisk API handle will be sent as an argument; call utility functions or interface
     /// with Zygisk through this handle.
-    fn on_load(&self, api: ZygiskApi, env: JNIEnv) {}
+    fn on_load(&self, api: ZygiskApi, env: &mut JNIEnv) {}
 
     /// This function is called before the app process is specialized.
     /// At this point, the process just got forked from zygote, but no app specific specialization
