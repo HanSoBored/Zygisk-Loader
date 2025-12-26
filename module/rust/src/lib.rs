@@ -42,7 +42,7 @@ static PAYLOAD_BUFFER: OnceLock<Vec<u8>> = OnceLock::new();
 static TARGET_APP_DETECTED: OnceLock<bool> = OnceLock::new();
 
 impl ZygiskModule for ZygiskLoaderModule {
-    fn on_load(&self, _api: ZygiskApi, env: JNIEnv) {
+    fn on_load(&self, _api: ZygiskApi, env: &mut JNIEnv) {
         #[cfg(target_os = "android")]
         android_logger::init_once(
             Config::default()
@@ -168,11 +168,12 @@ fn read_target_config() -> std::io::Result<String> {
 
 fn get_process_name_from_args_safe(args: &AppSpecializeArgs) -> String {
     if let Some(vm) = JAVA_VM.get() {
-        if let Ok(env) = vm.attach_current_thread_as_daemon() {
-            let nice_name_j = unsafe { *args.nice_name };
-            if let Ok(s) = env.get_string(nice_name_j) {
+        if let Ok(mut env) = vm.attach_current_thread_as_daemon() {
+            if let Ok(s) = env.get_string(args.nice_name) {
                 let s_rust: String = s.into();
-                if !s_rust.is_empty() { return s_rust; }
+                if !s_rust.is_empty() {
+                    return s_rust;
+                }
             }
         }
     }
@@ -186,10 +187,9 @@ fn get_process_name_from_args_safe(args: &AppSpecializeArgs) -> String {
 
 fn get_app_data_dir_from_args(args: &AppSpecializeArgs) -> String {
     if let Some(vm) = JAVA_VM.get() {
-        if let Ok(env) = vm.attach_current_thread_as_daemon() {
-            let j_app_dir = unsafe { *args.app_data_dir };
-            if let Ok(j_str) = env.get_string(j_app_dir) {
-                 return String::from(j_str);
+        if let Ok(mut env) = vm.attach_current_thread_as_daemon() {
+            if let Ok(j_str) = env.get_string(args.app_data_dir) {
+                return j_str.into();
             }
         }
     }
