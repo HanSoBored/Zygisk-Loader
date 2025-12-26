@@ -1,13 +1,13 @@
 [package]
 name = "zygiskloader"
-version = "0.2.3"
+version = "0.2.1"
 edition = "2021"
 authors = ["HanSoBored <raihanzxx@gmailcom>"]
 description = "Zygisk-Loader Zygisk module with ReZygisk API v5 support"
 
 [dependencies]
 bitflags = "1.3.2"
-jni = "0.19.0"
+jni = "0.21.0"
 log = "0.4.14"
 libc = "0.2"
 
