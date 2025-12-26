@@ -25,8 +25,8 @@ use jni::{JNIEnv, JavaVM};
 pub use module::ZygiskModule;
 
 // Config & Source Payload path
-const CONFIG_PATH: &str = "/data/adb/modules/zygisk-loader/active_config.txt";
-const SOURCE_PAYLOAD_PATH: &str = "/data/adb/modules/zygisk-loader/payload.so";
+const CONFIG_PATH: &str = "/data/adb/modules/zygisk-loader/config/target";
+const SOURCE_PAYLOAD_PATH: &str = "/data/adb/modules/zygisk-loader/config/payload.so";
 const TARGET_FILENAME: &str = "lib_ghost_payload.so";
 
 static MODULE: ZygiskLoaderModule = ZygiskLoaderModule {};
@@ -36,8 +36,6 @@ struct ZygiskLoaderModule {}
 
 static JAVA_VM: OnceLock<JavaVM> = OnceLock::new();
 static TARGET_CONFIG: OnceLock<String> = OnceLock::new();
-
-// Buffer Memory: The bridge between Root (Pre) and App (Post)
 static PAYLOAD_BUFFER: OnceLock<Vec<u8>> = OnceLock::new();
 static TARGET_APP_DETECTED: OnceLock<bool> = OnceLock::new();
 
@@ -61,7 +59,6 @@ impl ZygiskModule for ZygiskLoaderModule {
             let _ = TARGET_CONFIG.set(target);
         }
 
-        // 2. Target Detection
         let current_process = get_process_name_from_args_safe(args);
         let target_package = TARGET_CONFIG.get().map(|s| s.as_str()).unwrap_or("");
 
@@ -69,14 +66,14 @@ impl ZygiskModule for ZygiskLoaderModule {
             info!("Target Detected: {}", current_process);
             let _ = TARGET_APP_DETECTED.set(true);
 
-            // 3. Read payload to RAM
+            // 2. Read Payload to RAM
             match read_file_to_memory(SOURCE_PAYLOAD_PATH) {
                 Ok(buffer) => {
                     info!("Payload buffered to RAM: {} bytes", buffer.len());
                     let _ = PAYLOAD_BUFFER.set(buffer);
                 },
                 Err(e) => {
-                    error!("Failed to buffer payload: {}", e);
+                    error!("Failed to buffer payload from {}: {}", SOURCE_PAYLOAD_PATH, e);
                 }
             }
         }
@@ -87,37 +84,27 @@ impl ZygiskModule for ZygiskLoaderModule {
             return;
         }
 
-        // 4. Get App Data Dir (Now we have become an App)
         let app_data_dir = get_app_data_dir_from_args(args);
-        if app_data_dir.is_empty() {
-            error!("Post-Specialize: Failed to get app data dir");
-            return;
-        }
+        if app_data_dir.is_empty() { return; }
 
-        // 5. Rewrite Buffer to Application Cache
         if let Some(buffer) = PAYLOAD_BUFFER.get() {
             let cache_dir = format!("{}/cache", app_data_dir);
             let dest_path = format!("{}/{}", cache_dir, TARGET_FILENAME);
 
-            // Create a cache folder if it doesn't exist
-            if let Err(e) = fs::create_dir_all(&cache_dir) {
-                error!("Failed to create cache dir: {}", e);
-                return;
-            }
-
-            info!("Writing payload from RAM to: {}", dest_path);
+            let _ = fs::create_dir_all(&cache_dir);
             
             // Write file
             match write_memory_to_file(&dest_path, buffer) {
                 Ok(_) => {
-                    // Set executable permission (rwx------)
                     let c_dest = CString::new(dest_path.clone()).unwrap();
-                    unsafe { libc::chmod(c_dest.as_ptr(), 0o700) };
                     
-                    // 6. DLOPEN
-                    info!("Injecting...");
                     unsafe {
+                        libc::chmod(c_dest.as_ptr(), 0o700);
+                        
+                        // Injection
+                        info!("Injecting...");
                         let handle = libc::dlopen(c_dest.as_ptr(), libc::RTLD_NOW);
+                        
                         if handle.is_null() {
                             let err = CStr::from_ptr(libc::dlerror()).to_string_lossy();
                             error!("dlopen failed: {}", err);
@@ -125,17 +112,16 @@ impl ZygiskModule for ZygiskLoaderModule {
                             info!("Injection success! Handle: {:p}", handle);
                             info!("Payload is active.");
                             
-                            // Optional: Delete physical files to keep things tidy.
-                            // fs::remove_file(dest_path).ok();
+                            if libc::unlink(c_dest.as_ptr()) == 0 {
+                                info!("Artifact removed from disk.");
+                            } else {
+                                error!("Failed to remove artifact.");
+                            }
                         }
                     }
                 },
-                Err(e) => {
-                    error!("Failed to write payload to disk: {}", e);
-                }
+                Err(e) => error!("Write failed: {}", e)
             }
-        } else {
-            error!("Payload buffer is empty!");
         }
     }
 }
@@ -171,17 +157,12 @@ fn get_process_name_from_args_safe(args: &AppSpecializeArgs) -> String {
         if let Ok(mut env) = vm.attach_current_thread_as_daemon() {
             if let Ok(s) = env.get_string(args.nice_name) {
                 let s_rust: String = s.into();
-                if !s_rust.is_empty() {
-                    return s_rust;
-                }
+                if !s_rust.is_empty() { return s_rust; }
             }
         }
     }
-    // Fallback
     let dir = get_app_data_dir_from_args(args);
-    if !dir.is_empty() {
-        return extract_package_from_path(&dir);
-    }
+    if !dir.is_empty() { return extract_package_from_path(&dir); }
     String::new()
 }
 
