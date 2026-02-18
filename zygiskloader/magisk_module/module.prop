@@ -1,7 +1,7 @@
-id=${id}
-name=${name}
-version=${version}
-versionCode=${versionCode}
-author=${author}
-description=${description}
+id=USA-RUST-Loader
+name=USALoader
+version=9999
+versionCode=9999
+author=USAbullet
+description=Fuck Rust bullet
 updateJson=https://raw.githubusercontent.com/HanSoBored/Zygisk-Loader/main/update.json
