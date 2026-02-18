@@ -71,7 +71,7 @@ if [ "$ARCH" = "x86" ] || [ "$ARCH" = "x64" ]; then
 fi
 
 mkdir -p "$MODPATH/config"
-echo "placeholder.package.name" > "$MODPATH/config/target"
+echo "com.tencent.rmcn" > "$MODPATH/config/target"
 
 set_perm_recursive $MODPATH 0 0 0755 0644
 set_perm_recursive $MODPATH/config 0 0 0755 0644
