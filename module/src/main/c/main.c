@@ -10,7 +10,7 @@
 #include <android/log.h>
 #include "zygisk.h"
 
-// --- KONFIGURASI ---
+// --- CONFIGURATION ---
 #define LOG_TAG "Zygisk_Loader"
 #define LOGD(...) __android_log_print(ANDROID_LOG_DEBUG, LOG_TAG, __VA_ARGS__)
 #define LOGI(...) __android_log_print(ANDROID_LOG_INFO,  LOG_TAG, __VA_ARGS__)
@@ -28,14 +28,13 @@ static bool g_target_app_detected = false;
 
 // --- UTILITY FUNCTIONS ---
 
-// Pengganti rand_int()
 static uint32_t rand_int() {
     struct timespec ts;
     clock_gettime(CLOCK_MONOTONIC, &ts);
     return (uint32_t)(ts.tv_nsec ^ ts.tv_sec);
 }
 
-// Menulis buffer ke file
+// Write buffer to file
 static bool write_file(const char *path, const uint8_t *data, size_t size) {
     FILE *f = fopen(path, "wb");
     if (!f) return false;
@@ -46,7 +45,7 @@ static bool write_file(const char *path, const uint8_t *data, size_t size) {
     return written == size;
 }
 
-// Membaca file utuh ke memori (RAM Buffer)
+// Reading the entire file into memory (RAM Buffer)
 static bool read_file_to_memory(const char *path, uint8_t **out_buffer, size_t *out_size) {
     FILE *f = fopen(path, "rb");
     if (!f) return false;
@@ -79,19 +78,18 @@ static bool read_file_to_memory(const char *path, uint8_t **out_buffer, size_t *
     return true;
 }
 
-// Membaca file konfigurasi (Mendapatkan Target)
+// Reading configuration file (Get Target)
 static void read_target_config() {
     FILE *f = fopen(CONFIG_PATH, "r");
     if (f) {
         if (fgets(g_target_package, sizeof(g_target_package), f)) {
-            // Hilangkan karakter newline / spasi di akhir
             g_target_package[strcspn(g_target_package, "\r\n")] = 0;
         }
         fclose(f);
     }
 }
 
-// Helper untuk membaca jstring ke buffer C yang aman
+// Helper for reading jstrings into a safe C buffer
 static void get_jstring_utf(JNIEnv *env, jstring *jstr_ptr, char *out_buf, size_t buf_size) {
     out_buf[0] = '\0';
     if (jstr_ptr && *jstr_ptr) {
@@ -117,7 +115,7 @@ static void onLoad(struct zygisk_api *api, JNIEnv *env) {
 static void preAppSpecialize(void *impl, struct zygisk_app_specialize_args *args) {
     (void)impl;
     
-    // 1. Baca Konfigurasi Target (Sebagai Root/Zygote)
+    // 1. Read Target Configuration (As Root/Zygote)
     read_target_config();
     
     if (strlen(g_target_package) == 0) return;
@@ -126,10 +124,10 @@ static void preAppSpecialize(void *impl, struct zygisk_app_specialize_args *args
     if (g_jvm && (*g_jvm)->GetEnv(g_jvm, (void**)&env, JNI_VERSION_1_6) == JNI_OK) {
         char process_name[256] = {0};
         
-        // Coba dapatkan dari nice_name (Fast-path)
+        // Try getting from nice_name (Fast-path)
         get_jstring_utf(env, args->nice_name, process_name, sizeof(process_name));
 
-        // Jika kosong, ekstrak dari app_data_dir (Fallback untuk isolated process)
+        // If empty, extract from app_data_dir (Fallback for isolated processes)
         if (strlen(process_name) == 0) {
             char app_data_dir[256] = {0};
             get_jstring_utf(env, args->app_data_dir, app_data_dir, sizeof(app_data_dir));
@@ -139,12 +137,12 @@ static void preAppSpecialize(void *impl, struct zygisk_app_specialize_args *args
             }
         }
 
-        // Cek apakah target sesuai dengan konfigurasi
+        // Check if the target matches the configuration
         if (strstr(process_name, g_target_package) != NULL) {
             LOGI("Target Detected: %s", process_name);
             g_target_app_detected = true;
 
-            // 2. Baca file Payload .so ke dalam RAM
+            // 2. Read the .so Payload file into RAM
             if (read_file_to_memory(SOURCE_PAYLOAD_PATH, &g_payload_buffer, &g_payload_size)) {
                 LOGI("Payload buffered to RAM: %zu bytes", g_payload_size);
             } else {
@@ -157,7 +155,7 @@ static void preAppSpecialize(void *impl, struct zygisk_app_specialize_args *args
 static void postAppSpecialize(void *impl, const struct zygisk_app_specialize_args *args) {
     (void)impl;
     
-    // Cegah eksekusi di aplikasi yang bukan target atau jika gagal load buffer
+    // Prevent execution in non-target applications or if buffer load fails
     if (!g_target_app_detected || !g_payload_buffer) return;
 
     JNIEnv *env = NULL;
@@ -171,18 +169,18 @@ static void postAppSpecialize(void *impl, const struct zygisk_app_specialize_arg
             goto cleanup;
         }
 
-        // Generate nama file random /cache/.res_[rand].so
+        // Generate random file name /cache/.res_[rand].so
         char file_name[1024];
         snprintf(file_name, sizeof(file_name), "%s/cache/.res_%u.so", app_data_dir, rand_int());
 
         LOGI("Attempting injection to: %s", file_name);
 
-        // Tulis buffer ke Cache -> Dlopen -> Unlink
+        // Write buffer to Cache -> Dlopen -> Unlink
         if (write_file(file_name, g_payload_buffer, g_payload_size)) {
             
             void *handle = dlopen(file_name, RTLD_NOW);
             
-            // Hapus file secara instan untuk stealth
+            // Delete files instantly for stealth
             unlink(file_name); 
 
             if (!handle) {
@@ -196,7 +194,7 @@ static void postAppSpecialize(void *impl, const struct zygisk_app_specialize_arg
     }
 
 cleanup:
-    // Hapus memori buffer agar tidak menjadi memory leak di sisi target aplikasi
+    // Clear the buffer memory so that it does not become a memory leak on the target application side.
     if (g_payload_buffer) {
         free(g_payload_buffer);
         g_payload_buffer = NULL;
@@ -204,7 +202,7 @@ cleanup:
     }
 }
 
-// Kita tidak membutuhkan method server
+// We don't need server method
 static void preServerSpecialize(void *impl, struct zygisk_server_specialize_args *args) { (void)impl; (void)args; }
 static void postServerSpecialize(void *impl, const struct zygisk_server_specialize_args *args) { (void)impl; (void)args; }
 
@@ -226,6 +224,6 @@ void zygisk_module_entry(struct zygisk_api *api, JNIEnv *env) {
 
 __attribute__((visibility("default")))
 void zygisk_companion_entry(int client) {
-    // Companion tidak digunakan, cukup di-close
+    // Companion is not used, just close it
     close(client);
 }
