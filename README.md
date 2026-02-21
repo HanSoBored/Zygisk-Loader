@@ -1,21 +1,21 @@
 # ⚡ Zygisk-Loader
 
-![Language](https://img.shields.io/badge/Language-Rust-orange)
-![API](https://img.shields.io/badge/Zygisk-API%20v5-blue)
+![Language](https://img.shields.io/badge/Language-C-blue)
+![API](https://img.shields.io/badge/Zygisk-API%20v5-green)
 [![Channel](https://img.shields.io/badge/Follow-Telegram-blue.svg?logo=telegram)](https://t.me/UnixPhoriaD)
 
-**Zygisk-Loader** is a stealthy, high-performance Zygisk module written in **Rust**. It acts as a universal bridge that dynamically injects external shared libraries (`.so`) into specific Android application processes.
+**Zygisk-Loader** is a stealthy, ultra-lightweight Zygisk module written in **Pure C**. It acts as a universal bridge that dynamically injects external shared libraries (`.so`) into specific Android application processes.
 
-Unlike traditional modules that require rebuilding and rebooting, **Zygisk-Loader** enables a **"Hot-Swap" workflow**. You can recompile your instrumentation library, push it to the device, and simply restart the target app to apply changes instantly.
+Rewritten from Rust to C, this module now boasts an incredibly small footprint (**< 20KB**) with zero runtime dependencies. Unlike traditional modules that require rebuilding and rebooting, **Zygisk-Loader** enables a **"Hot-Swap" workflow**. You can recompile your instrumentation library, push it to the device, and simply restart the target app to apply changes instantly.
 
 ## Key Features
 
 *   **Hot-Swap Capable**: Update your payload (`.so`) and deploy instantly by just restarting the target app. No device reboot required.
+*   **Ultra-Lightweight**: Built with **Pure C** and standard Android NDK libraries. The module binary is microscopic (<20KB), ensuring minimal memory usage and maximum performance.
 *   **Robust Injection**: Uses a **RAM-Buffering Strategy**. The payload is read into memory with Root privileges, then written to the app's cache in the post-specialize phase. This ensures compatibility with strict SELinux policies and isolated processes.
 *   **Stealthy (Self-Deleting)**: The payload is written to disk, loaded, and **immediately unlinked**. The file vanishes from the filesystem instantly, leaving minimal traces for file scanners.
 *   **Zygisk API v5**: Utilizes the latest Zygisk API for maximum compatibility with Magisk, KernelSU, and APatch.
 *   **Config-Driven**: Simple text-based configuration. No hardcoded package names.
-*   **Rust-Powered**: Built with safety and performance in mind using the `jni` and `libc` crates.
 
 ## Architecture
 
@@ -82,10 +82,10 @@ echo "com.target.application" > /data/adb/modules/zygisk-loader/config/target
 ```
 
 **B. Deploy Payload:**
-Copy your compiled Rust/C++ library to the config folder:
+Copy your compiled C/C++/Rust library to the config folder:
 ```bash
 # Copy your hook library
-cp libunpin.so /data/adb/modules/zygisk-loader/config/payload.so
+cp libmyhook.so /data/adb/modules/zygisk-loader/config/payload.so
 
 # Set permissions (Important for Zygote to read it)
 chmod 644 /data/adb/modules/zygisk-loader/config/payload.so
@@ -99,7 +99,28 @@ am force-stop com.target.application
 
 ## Developing a Payload
 
-Your payload does not need to know about Zygisk. It acts as a standard shared library. In Rust, we recommend using the `ctor` crate for automatic initialization.
+Your payload does not need to know about Zygisk. It acts as a standard shared library. You can write your payload in **C, C++, or Rust**.
+
+### Option A: Using C/C++ (Constructor Attribute)
+
+```c
+#include <android/log.h>
+#include <unistd.h>
+
+#define LOG_TAG "GhostPayload"
+#define LOGI(...) __android_log_print(ANDROID_LOG_INFO, LOG_TAG, __VA_ARGS__)
+
+// This function runs automatically when dlopen() is called
+__attribute__((constructor))
+void init() {
+    LOGI("Hello from inside the target application!");
+    LOGI("I have been loaded and my file on disk is likely already gone.");
+    
+    // Your hooking logic (e.g., Dobby, And64InlineHook) goes here
+}
+```
+
+### Option B: Using Rust (ctor crate)
 
 `Cargo.toml`:
 ```toml
@@ -126,14 +147,13 @@ fn init() {
     
     // logic hooking start here
     log::info!("Hello from inside the target application!");
-    log::info!("I have been loaded and my file on disk is already gone.");
 }
 ```
 
 ## Technical Constraints
 
 *   **SELinux Compatibility**: This module uses disk injection (Write-Load-Unlink) instead of `memfd` to ensure maximum compatibility across all Android versions and SELinux contexts. `memfd` often fails on `untrusted_app` domains due to `execmem` restrictions.
-*   **Isolated Processes**: The loader automatically handles isolated processes (e.g., `:remote` services) by resolving the correct data directory path.
+*   **Isolated Processes**: The loader automatically handles isolated processes (e.g., `:remote` services) by intelligently resolving the correct data directory path.
 
 ## Disclaimer
 

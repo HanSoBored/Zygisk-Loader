@@ -1,130 +1,131 @@
 import org.apache.tools.ant.filters.FixCrLfFilter
-
+import org.apache.tools.ant.filters.ReplaceTokens
 import java.security.MessageDigest
 
 plugins {
-    id 'com.android.library'
-    id "org.mozilla.rust-android-gradle.rust-android" version "0.9.6"
+    id 'com.android.application'
 }
-
-apply from: file(rootProject.file('module.gradle'))
 
 android {
-    compileSdk target_sdk
-    buildToolsVersion '36.1.0'
     defaultConfig {
-        minSdk min_sdk
-        targetSdk target_sdk
         ndk {
-            abiFilters "arm64-v8a", "armeabi-v7a", "x86", "x86_64"
+            abiFilters.addAll(rootProject.abiList)
+        }
+        externalNativeBuild {
+            cmake {
+                arguments "-DANDROID_STL=none", "-DMODULE_NAME=${rootProject.moduleId}"
+            }
         }
     }
-    ndkVersion '29.0.14206865'
-}
-
-cargo {
-    verbose = true
-    profile = project.hasProperty('release') ? "release" : "debug"
-    module  = "./rust"       // Or whatever directory contains your Cargo.toml
-    libname = "zygiskloader"          // Or whatever matches Cargo.toml's [package] name.
-    targets = ["arm", "arm64", "x86", "x86_64"]  // See bellow for a longer list of options
-    pythonCommand = "python3"
-}
-
-
-afterEvaluate {
-    // The `cargoBuild` task isn't available until after evaluation.
-    android.libraryVariants.all { variant ->
-        def variantCapped = variant.name.capitalize()
-        def productFlavor = ""
-        variant.productFlavors.each {
-            productFlavor += "${it.name.capitalize()}"
+    externalNativeBuild {
+        cmake {
+            path "src/main/c/CMakeLists.txt"
         }
-        def buildType = "${variant.buildType.name.capitalize()}"
-        tasks["generate${productFlavor}${buildType}Assets"].dependsOn(tasks["cargoBuild"])
-        tasks["strip${variantCapped}DebugSymbols"].dependsOn(tasks["generate${productFlavor}${buildType}Assets"])
     }
+}
 
-    android.libraryVariants.forEach { variant ->
-        def variantCapped = variant.name.capitalize()
-        def variantLowered = variant.name.toLowerCase()
+androidComponents {
+    onVariants(selector().all()) { variant ->
+        def variantName = variant.name
+        def variantLowered = variantName.toLowerCase()
+        def variantCapped = variantName.capitalize()
+        def buildTypeLowered = variant.buildType?.toLowerCase()
+        
+        def supportedAbis = rootProject.abiList.collect {
+            switch (it) {
+                case "arm64-v8a": return "arm64"
+                case "armeabi-v7a": return "arm"
+                case "x86": return "x86"
+                case "x86_64": return "x64"
+                default: throw new GradleException("unsupported abi $it")
+            }
+        }.join(" ")
 
-        def zipName = "${magiskModuleId.replace('_', '-')}-${moduleVersion}-${variantLowered}.zip"
-        def magiskDir = file("$outDir/magisk_module_$variantLowered")
+        def moduleDir = layout.buildDirectory.file("outputs/module/$variantLowered")
+        def zipFileName = "${rootProject.moduleName}-v${rootProject.verName}.${rootProject.verCode}-${rootProject.commitHash}-${buildTypeLowered}.zip".replace(' ', '-')
 
-        task("prepareMagiskFiles${variantCapped}", type: Sync) {
-            dependsOn("strip${variantCapped}DebugSymbols")
-            dependsOn("assemble$variantCapped")
+        afterEvaluate {
+            def prepareModuleFilesTask = tasks.register("prepareModuleFiles$variantCapped", Sync) {
+                group = "module"
+                dependsOn "assemble$variantCapped"
+                into moduleDir
+                from(rootProject.layout.projectDirectory.file("README.md"))
+                from(layout.projectDirectory.file("template")) {
+                    exclude "module.prop", "customize.sh", "post-fs-data.sh", "service.sh"
+                    filter(FixCrLfFilter, eol: FixCrLfFilter.CrLf.newInstance("lf"))
+                }
+                from(layout.projectDirectory.file("template")) {
+                    include "module.prop"
+                    expand(
+                        moduleId: rootProject.moduleId,
+                        moduleName: rootProject.moduleName,
+                        versionName: "${rootProject.verName} (${rootProject.verCode}-${rootProject.commitHash}-${variantLowered})",
+                        versionCode: rootProject.verCode
+                    )
+                }
+                from(layout.projectDirectory.file("template")) {
+                    include "customize.sh", "post-fs-data.sh", "service.sh"
+                    def tokens = [
+                        DEBUG: (buildTypeLowered == "debug" ? "true" : "false"),
+                        SONAME: rootProject.moduleId,
+                        SUPPORTED_ABIS: supportedAbis
+                    ]
+                    filter(ReplaceTokens, tokens: tokens)
+                    filter(FixCrLfFilter, eol: FixCrLfFilter.CrLf.newInstance("lf"))
+                }
+                from(layout.buildDirectory.file("intermediates/stripped_native_libs/$variantLowered/strip${variantCapped}DebugSymbols/out/lib")) {
+                    into "lib"
+                }
 
-            def zygiskLoaderPath = "$rootDir/zygiskloader/magisk_module"
-
-            into magiskDir
-            from(zygiskLoaderPath) {
-                exclude 'module.prop'
-            }
-            from(zygiskLoaderPath) {
-                include 'module.prop'
-                expand([
-                        id         : magiskModuleId,
-                        name       : moduleName,
-                        version    : moduleVersion,
-                        versionCode: moduleVersionCode.toString(),
-                        author     : moduleAuthor,
-                        description: moduleDescription,
-                ])
-                filter(FixCrLfFilter.class,
-                        eol: FixCrLfFilter.CrLf.newInstance("lf"))
-            }
-            from("$buildDir/rustJniLibs/android/arm64-v8a") {
-                into 'lib/arm64-v8a'
-            }
-            from("$buildDir/rustJniLibs/android/armeabi-v7a") {
-                into 'lib/armeabi-v7a'
-            }
-            from("$buildDir/rustJniLibs/android/x86") {
-                into 'lib/x86'
-            }
-            from("$buildDir/rustJniLibs/android/x86_64") {
-                into 'lib/x86_64'
-            }
-            doLast {
-                fileTree("$magiskDir").visit { f ->
-                    if (f.directory) return
-                    if (f.file.name == '.gitattributes') return
-
-                    def md = MessageDigest.getInstance("SHA-256")
-                    f.file.eachByte 4096, { bytes, size ->
-                        md.update(bytes, 0, size)
+                doLast {
+                    fileTree(moduleDir.get().asFile).visit { details ->
+                        if (details.directory) return
+                        def md = MessageDigest.getInstance("SHA-256")
+                        details.file.eachByte(4096) { bytes, size ->
+                            md.update(bytes, 0, size)
+                        }
+                        new File(details.file.path + ".sha256").text = md.digest().encodeHex().toString()
                     }
-                    file(f.file.path + ".sha256sum").text = md.digest().encodeHex()
                 }
             }
-        }
 
-        task("zip${variantCapped}", type: Zip) {
-            dependsOn("prepareMagiskFiles${variantCapped}")
-            from magiskDir
-            archiveFileName = zipName
-            destinationDirectory = file(outDir)
-        }
+            def zipTask = tasks.register("zip$variantCapped", Zip) {
+                group = "module"
+                dependsOn prepareModuleFilesTask
+                archiveFileName = zipFileName
+                destinationDirectory = layout.projectDirectory.file("release").asFile
+                from moduleDir
+            }
 
-        task("push${variantCapped}", type: Exec) {
-            dependsOn("zip${variantCapped}")
-            workingDir outDir
-            commandLine android.adbExecutable, "push", zipName, "/data/local/tmp/"
-        }
+            def pushTask = tasks.register("push$variantCapped", Exec) {
+                group = "module"
+                dependsOn zipTask
+                commandLine "adb", "push", zipTask.get().outputs.files.singleFile.path, "/data/local/tmp"
+            }
 
-        task("flash${variantCapped}", type: Exec) {
-            dependsOn("push${variantCapped}")
-            commandLine android.adbExecutable, "shell", "su", "-c",
-                    "magisk --install-module /data/local/tmp/${zipName}"
-        }
+            def installKsuTask = tasks.register("installKsu$variantCapped", Exec) {
+                group = "module"
+                dependsOn pushTask
+                commandLine "adb", "shell", "su", "-c", "/data/adb/ksud module install /data/local/tmp/$zipFileName"
+            }
 
-        task("flashAndReboot${variantCapped}", type: Exec) {
-            dependsOn("flash${variantCapped}")
-            commandLine android.adbExecutable, "shell", "reboot"
-        }
+            def installMagiskTask = tasks.register("installMagisk$variantCapped", Exec) {
+                group = "module"
+                dependsOn pushTask
+                commandLine "adb", "shell", "su", "-M", "-c", "magisk --install-module /data/local/tmp/$zipFileName"
+            }
 
-        variant.assembleProvider.get().finalizedBy("zip${variantCapped}")
+            tasks.register("installKsuAndReboot$variantCapped", Exec) {
+                group = "module"
+                dependsOn installKsuTask
+                commandLine "adb", "reboot"
+            }
+
+            tasks.register("installMagiskAndReboot$variantCapped", Exec) {
+                group = "module"
+                dependsOn installMagiskTask
+                commandLine "adb", "reboot"
+            }
+        }
     }
 }

@@ -1,0 +1,7 @@
+id=${moduleId}
+name=${moduleName}
+version=${versionName}
+versionCode=${versionCode}
+author=HanSoBored
+description=Zygisk-Loader is a dynamic payload injection module
+#updateJson=

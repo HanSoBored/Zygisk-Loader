@@ -1,36 +1,66 @@
-// Top-level build file where you can add configuration options common to all sub-projects/modules.
-buildscript {
-    repositories {
-        google()
-        mavenCentral()
-        maven{
-            url "https://plugins.gradle.org/m2/"
-        }
-    }
-    dependencies {
-        classpath "com.android.tools.build:gradle:7.4.2"
-        // NOTE: Do not place your application dependencies here; they belong
-        // in the individual module build.gradle files
-    }
-}
-
 plugins {
-    id 'idea'
+    alias(libs.plugins.agp.app) apply false
 }
 
-idea.module {
-    excludeDirs += file('out')
-    resourceDirs += file('zygiskloader')
-    resourceDirs += file('scripts')
+def execute(String cmd, File currentWorkingDir = file("./"), String fallback = "") {
+    try {
+        def byteOut = new ByteArrayOutputStream()
+        project.exec {
+            workingDir = currentWorkingDir
+            commandLine = cmd.split("\s")
+            standardOutput = byteOut
+            errorOutput = new ByteArrayOutputStream()
+            ignoreExitValue = true
+        }
+        def result = byteOut.toString().trim()
+        return result.isEmpty() ? fallback : result
+    } catch (Exception ignored) {
+        return fallback
+    }
 }
+
+def gitCommitCount = execute("git rev-list HEAD --count", file("./"), "1").toInteger()
+def gitCommitHash = execute("git rev-parse --verify --short HEAD", file("./"), "unknown")
 
 ext {
-    min_sdk = 23
-    target_sdk = 31
+    moduleId = "zygisk-loader"
+    moduleName = "Zygisk Loader"
+    verName = "1.0.0"
+    verCode = gitCommitCount
+    commitHash = gitCommitHash
+    abiList = ["arm64-v8a", "armeabi-v7a", "x86", "x86_64"]
 
-    outDir = file("$rootDir/out")
+    androidMinSdkVersion = 26
+    androidTargetSdkVersion = 36
+    androidCompileSdkVersion = 36
+    androidBuildToolsVersion = "36.1.0"
+    androidCompileNdkVersion = "29.0.14206865"
+    androidSourceCompatibility = JavaVersion.VERSION_17
+    androidTargetCompatibility = JavaVersion.VERSION_17
 }
 
-task clean(type: Delete) {
-    delete rootProject.buildDir, outDir
+tasks.register("clean", Delete) {
+    delete rootProject.buildDir
+}
+
+subprojects {
+    afterEvaluate { project ->
+        if (project.plugins.hasPlugin("com.android.application")) {
+            android {
+                namespace = "io.github.hansobored.zygisk.loader"
+                compileSdkVersion rootProject.androidCompileSdkVersion
+                ndkVersion rootProject.androidCompileNdkVersion
+                buildToolsVersion rootProject.androidBuildToolsVersion
+
+                defaultConfig {
+                    minSdkVersion rootProject.androidMinSdkVersion
+                }
+
+                compileOptions {
+                    sourceCompatibility rootProject.androidSourceCompatibility
+                    targetCompatibility rootProject.androidTargetCompatibility
+                }
+            }
+        }
+    }
 }

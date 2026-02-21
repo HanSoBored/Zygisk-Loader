@@ -1,6 +1,0 @@
-{
-  "version": "v0.3.3",
-  "versionCode": 10,
-  "zipUrl": "https://github.com/HanSoBored/Zygisk-Loader/releases/download/v0.3.3/zygisk-loader-v0.3.3-release.zip",
-  "changelog": "refactor: improve injection stealth with random filenames and immediate cleanup"
-}

@@ -8,4 +8,5 @@
 .externalNativeBuild
 .cxx
 local.properties
-out
+module/build
+module/release
