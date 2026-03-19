@@ -27,7 +27,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          fetch-depth: 2
+          fetch-depth: 0
       - name: Get version
         id: get_version
         run: |
@@ -101,15 +101,23 @@ jobs:
           name: ZygiskLoader-Release
           path: out
 
+      - name: Generate Changelog
+        uses: orhun/git-cliff-action@v4
+        id: git_cliff
+        with:
+          config: .github/external/cliff.toml
+          args: --verbose --unreleased --tag v${{ needs.check-version.outputs.version }} --strip all
+        env:
+          OUTPUT: CHANGELOG.md
+
       - name: Create Release
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: v${{ needs.check_version.outputs.version }}
-          name: Release v${{ needs.check_version.outputs.version }}
-          body: "See update.json for changelog."
+          tag_name: v${{ needs.check-version.outputs.version }}
+          name: Release v${{ needs.check-version.outputs.version }}
+          body: ${{ steps.git_cliff.outputs.content }}
           files: out/*.zip
           draft: false
           prerelease: false
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-

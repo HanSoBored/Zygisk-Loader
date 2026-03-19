@@ -42,7 +42,12 @@ androidComponents {
         }.join(" ")
 
         def moduleDir = layout.buildDirectory.file("outputs/module/$variantLowered")
-        def zipFileName = "${rootProject.moduleName}-v${rootProject.verName}.${rootProject.verCode}-${rootProject.commitHash}-${buildTypeLowered}.zip".replace(' ', '-')
+        def zipFileName
+        if (buildTypeLowered == "release") {
+            zipFileName = "${rootProject.moduleId}-v${rootProject.verName}-release.zip"
+        } else {
+            zipFileName = "${rootProject.moduleId}-v${rootProject.verName}.${rootProject.verCode}-${rootProject.commitHash}-${buildTypeLowered}.zip"
+        }
 
         afterEvaluate {
             def prepareModuleFilesTask = tasks.register("prepareModuleFiles$variantCapped", Sync) {
