@@ -22,12 +22,12 @@ def execute(String cmd, File currentWorkingDir = file("./"), String fallback = "
 def gitCommitCount = execute("git rev-list HEAD --count", file("./"), "1").toInteger()
 def gitCommitHash = execute("git rev-parse --verify --short HEAD", file("./"), "unknown")
 def versionFile = file("VERSION")
-def verName = versionFile.exists() ? versionFile.text.trim() : "1.1.0"
+def currentVerName = versionFile.exists() ? versionFile.text.trim() : "1.1.0"
 
 ext {
     moduleId = "zygisk-loader"
     moduleName = "Zygisk Loader"
-    verName = verName
+    verName = currentVerName
     verCode = gitCommitCount
     commitHash = gitCommitHash
     abiList = ["arm64-v8a", "armeabi-v7a", "x86", "x86_64"]
