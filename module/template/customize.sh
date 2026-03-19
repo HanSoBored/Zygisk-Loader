@@ -85,6 +85,13 @@ fi
 
 ui_print "- Setting permissions"
 mkdir -p "$MODPATH/config"
-echo "placeholder.package.name" > "$MODPATH/config/target"
+cat > "$MODPATH/config/target.json" << 'EOF'
+[
+  {
+    "app": "com.target.application",
+    "lib": "/data/adb/modules/zygisk-loader/config/payload.so"
+  }
+]
+EOF
 set_perm_recursive "$MODPATH" 0 0 0755 0644
 set_perm_recursive "$MODPATH/config" 0 0 0755 0644
