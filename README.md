@@ -12,10 +12,12 @@ Rewritten from Rust to C, this module now boasts an incredibly small footprint (
 
 *   **Hot-Swap Capable**: Update your payload (`.so`) and deploy instantly by just restarting the target app. No device reboot required.
 *   **Ultra-Lightweight**: Built with **Pure C** and standard Android NDK libraries. The module binary is microscopic (<20KB), ensuring minimal memory usage and maximum performance.
+*   **Multi-App Support**: JSON-based configuration allows targeting multiple apps with different payloads simultaneously.
 *   **Robust Injection**: Uses a **RAM-Buffering Strategy**. The payload is read into memory with Root privileges, then written to the app's cache in the post-specialize phase. This ensures compatibility with strict SELinux policies and isolated processes.
 *   **Stealthy (Self-Deleting)**: The payload is written to disk, loaded, and **immediately unlinked**. The file vanishes from the filesystem instantly, leaving minimal traces for file scanners.
 *   **Zygisk API v5**: Utilizes the latest Zygisk API for maximum compatibility with Magisk, KernelSU, and APatch.
-*   **Config-Driven**: Simple text-based configuration. No hardcoded package names.
+*   **Config-Driven**: Simple JSON-based configuration. No hardcoded package names.
+*   **Zero Dependencies**: Native lightweight JSON parser with no external library dependencies.
 
 ## Architecture
 
@@ -24,31 +26,34 @@ Zygisk-Loader separates the **Injector** (The Module) from the **Payload** (Your
 ```mermaid
 flowchart TD
     subgraph Storage [" /data/adb/modules/zygisk-loader/config/ "]
-        Config[("target")]
-        PayloadBin[("payload.so")]
+        Config[("target.json")]
+        PayloadBin[("payload_*.so")]
     end
 
     subgraph Zygote [" Zygote Process (Root) "]
-        Step1[Read Target Config]
-        Step2[Buffer Payload to RAM]
+        Step1[Parse JSON Config]
+        Step2[Match App Package]
+        Step3[Buffer Payload to RAM]
     end
 
     subgraph App [" Target App Process (User UID) "]
         Fork((Fork))
-        Step3[Write RAM to App Cache]
-        Step4[dlopen Cache File]
-        Step5[unlink Cache File]
+        Step4[Write RAM to App Cache]
+        Step5[dlopen Cache File]
+        Step6[unlink Cache File]
         Logic[Payload Active]
     end
 
     Config --> Step1
-    PayloadBin --> Step2
-    Step2 --> Fork
-    Fork --> Step3
-    Step3 --> Step4
+    Step1 --> Step2
+    Step2 --> PayloadBin
+    PayloadBin --> Step3
+    Step3 --> Fork
+    Fork --> Step4
     Step4 --> Step5
-    Step4 -.-> Logic
-    Step5 -.->|Artifact Removed| App
+    Step5 --> Step6
+    Step5 -.-> Logic
+    Step6 -.->|Artifact Removed| App
 ```
 
 ## Directory Structure
@@ -61,8 +66,8 @@ After installation, the module creates a configuration directory:
 ├── zygisk/
 │   └── ...
 └── config/              <-- WORKSPACE
-    ├── target           (File containing the target package name)
-    └── payload.so       (Your compiled library)
+    ├── target.json      (JSON configuration with app-package to payload mapping)
+    └── payload_*.so     (Your compiled libraries for each target)
 ```
 
 ## Usage
@@ -72,29 +77,55 @@ After installation, the module creates a configuration directory:
 2. Flash via Magisk / KernelSU / APatch.
 3. Reboot device.
 
-### 2. Configuration & Deployment
-You can control the loader using ADB or a root shell.
+### 2. Configuration (Multi-App Support)
 
-**A. Set Target Application:**
-Write the package name of the target app to the config file:
+Create or edit the JSON configuration file at `/data/adb/modules/zygisk-loader/config/target.json`:
+
 ```bash
-echo "com.target.application" > /data/adb/modules/zygisk-loader/config/target
+# Create the config file with multiple app targets
+cat > /data/adb/modules/zygisk-loader/config/target.json << 'EOF'
+[
+  {
+    "app": "com.instagram",
+    "lib": "/data/adb/modules/zygisk-loader/config/payload_ssl.so"
+  },
+  {
+    "app": "com.facebook",
+    "lib": "/data/adb/modules/zygisk-loader/config/payload_custom.so"
+  },
+  {
+    "app": "com.threads",
+    "lib": "/data/adb/modules/zygisk-loader/config/payload_research.so"
+  }
+]
+EOF
 ```
 
-**B. Deploy Payload:**
-Copy your compiled C/C++/Rust library to the config folder:
-```bash
-# Copy your hook library
-cp libmyhook.so /data/adb/modules/zygisk-loader/config/payload.so
+**Features:**
+- **Multiple Targets**: Each app can have its own dedicated payload
+- **Sub-Process Coverage**: Base package name matching automatically handles processes like `com.app:remote` or `com.app:bg`
+- **Flexible Formatting**: JSON parser is whitespace-tolerant
 
-# Set permissions (Important for Zygote to read it)
-chmod 644 /data/adb/modules/zygisk-loader/config/payload.so
+### 3. Deploy Payloads
+
+Copy your compiled libraries to the config folder:
+
+```bash
+# Copy payload libraries for each target
+cp libpayload_ssl.so /data/adb/modules/zygisk-loader/config/payload_ssl.so
+cp libpayload_custom.so /data/adb/modules/zygisk-loader/config/payload_custom.so
+
+# Set permissions (Important for Zygote to read them)
+chmod 644 /data/adb/modules/zygisk-loader/config/*.so
 ```
 
-**C. Apply (Hot-Swap):**
-Force stop the target application. The next time it launches, the loader will inject the new payload.
+### 4. Apply (Hot-Swap)
+
+Force stop the target application. The next time it launches, the loader will inject the corresponding payload:
+
 ```bash
-am force-stop com.target.application
+am force-stop com.instagram
+am force-stop com.facebook
 ```
 
 ## Developing a Payload
@@ -115,7 +146,7 @@ __attribute__((constructor))
 void init() {
     LOGI("Hello from inside the target application!");
     LOGI("I have been loaded and my file on disk is likely already gone.");
-    
+
     // Your hooking logic (e.g., Dobby, And64InlineHook) goes here
 }
 ```
@@ -144,7 +175,7 @@ fn init() {
     android_logger::init_once(
         Config::default().with_max_level(LevelFilter::Info).with_tag("GhostPayload")
     );
-    
+
     // logic hooking start here
     log::info!("Hello from inside the target application!");
 }
