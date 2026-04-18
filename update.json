@@ -1,6 +1,6 @@
 {
-  "version": "v1.1.0",
-  "versionCode": 45,
-  "zipUrl": "https://github.com/HanSoBored/Zygisk-Loader/releases/download/v1.1.0/zygisk-loader-v1.1.0-release.zip",
-  "changelog": "### Features\n- **Multi-App Support**: JSON-based configuration allows targeting multiple apps with different payloads simultaneously.\n- **Dynamic Payload Path**: Extract payload path from `target.json` for each app.\n- **Native JSON Parser**: Lightweight, zero-dependency C parser for configuration.\n- **Versioning**: Transition to version-driven release workflow with `VERSION` file."
+  "version": "v1.1.2",
+  "versionCode": 50,
+  "zipUrl": "https://github.com/HanSoBored/Zygisk-Loader/releases/download/v1.1.2/zygisk-loader-v1.1.2-release.zip",
+  "changelog": "### Changes\n- refactor(c): apply C23 standard with strict compiler warnings and fix type conversion issues\n- fix(c): inline function prototypes in main.c instead of separate header"
 }
