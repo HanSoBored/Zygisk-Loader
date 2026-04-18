@@ -9,6 +9,7 @@
 #include <dlfcn.h>
 #include <android/log.h>
 #include "zygisk.h"
+#include "zygisk-loader.h"
 
 // --- CONFIGURATION ---
 #define LOG_TAG "Zygisk_Loader"
@@ -27,7 +28,7 @@ static bool g_target_app_detected = false;
 
 // --- UTILITY FUNCTIONS ---
 
-static uint32_t rand_int() {
+static uint32_t rand_int(void) {
     struct timespec ts;
     clock_gettime(CLOCK_MONOTONIC, &ts);
     return (uint32_t)(ts.tv_nsec ^ ts.tv_sec);
@@ -50,14 +51,15 @@ static bool read_file_to_memory(const char *path, uint8_t **out_buffer, size_t *
     if (!f) return false;
 
     fseek(f, 0, SEEK_END);
-    long fsize = ftell(f);
+    long fsize_long = ftell(f);
     fseek(f, 0, SEEK_SET);
 
-    if (fsize <= 0) {
+    if (fsize_long <= 0) {
         fclose(f);
         return false;
     }
 
+    size_t fsize = (size_t)fsize_long;
     size_t alloc_size = null_terminate ? fsize + 1 : fsize;
     uint8_t *buf = (uint8_t *)malloc(alloc_size);
     if (!buf) {
@@ -68,7 +70,7 @@ static bool read_file_to_memory(const char *path, uint8_t **out_buffer, size_t *
     size_t read_sz = fread(buf, 1, fsize, f);
     fclose(f);
 
-    if (read_sz != (size_t)fsize) {
+    if (read_sz != fsize) {
         free(buf);
         return false;
     }
@@ -96,7 +98,7 @@ static bool get_payload_path(const char *json_data, const char *app_name, char *
             ptr++; // skip opening quote
             const char *val_end = strchr(ptr, '"');
             if (val_end) {
-                size_t val_len = val_end - ptr;
+                size_t val_len = (size_t)(val_end - ptr);
                 // Strict comparison: ensure exact match of package name
                 if (strncmp(ptr, app_name, val_len) == 0 && strlen(app_name) == val_len) {
                     // Match found! Now find "lib" within this object scope
@@ -108,7 +110,7 @@ static bool get_payload_path(const char *json_data, const char *app_name, char *
                             lib_ptr++;
                             const char *lib_end = strchr(lib_ptr, '"');
                             if (lib_end) {
-                                size_t lib_len = lib_end - lib_ptr;
+                                size_t lib_len = (size_t)(lib_end - lib_ptr);
                                 if (lib_len >= max_len) lib_len = max_len - 1;
                                 strncpy(out_path, lib_ptr, lib_len);
                                 out_path[lib_len] = '\0';
