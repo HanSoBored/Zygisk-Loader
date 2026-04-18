@@ -1,6 +1,6 @@
 {
-  "version": "v1.1.2",
-  "versionCode": 50,
+  "version": "v1.1.3",
+  "versionCode": 52,
   "zipUrl": "https://github.com/HanSoBored/Zygisk-Loader/releases/download/v1.1.2/zygisk-loader-v1.1.2-release.zip",
   "changelog": "### Changes\n- refactor(c): apply C23 standard with strict compiler warnings and fix type conversion issues\n- fix(c): inline function prototypes in main.c instead of separate header"
 }
