@@ -9,7 +9,9 @@
 #include <dlfcn.h>
 #include <android/log.h>
 #include "zygisk.h"
-#include "zygisk-loader.h"
+
+void zygisk_module_entry(struct zygisk_api *api, JNIEnv *env);
+void zygisk_companion_entry(int client);
 
 // --- CONFIGURATION ---
 #define LOG_TAG "Zygisk_Loader"
