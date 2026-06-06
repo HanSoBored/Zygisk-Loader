@@ -13,8 +13,8 @@ Rewritten from Rust to C, this module now boasts an incredibly small footprint (
 *   **Hot-Swap Capable**: Update your payload (`.so`) and deploy instantly by just restarting the target app. No device reboot required.
 *   **Ultra-Lightweight**: Built with **Pure C** and standard Android NDK libraries. The module binary is microscopic (<20KB), ensuring minimal memory usage and maximum performance.
 *   **Multi-App Support**: JSON-based configuration allows targeting multiple apps with different payloads simultaneously.
-*   **Robust Injection**: Uses a **RAM-Buffering Strategy**. The payload is read into memory with Root privileges, then written to the app's cache in the post-specialize phase. This ensures compatibility with strict SELinux policies and isolated processes.
-*   **Stealthy (Self-Deleting)**: The payload is written to disk, loaded, and **immediately unlinked**. The file vanishes from the filesystem instantly, leaving minimal traces for file scanners.
+*   **Robust Injection**: Uses **memfd-based RAM injection** via `memfd_create` + `android_dlopen_ext`. The payload is loaded directly from anonymous memory into the target process — no disk writes at any point. This approach works across all Android 10+ SELinux domains including `untrusted_app`.
+*   **Stealthy (Zero-Forensic-Trace)**: The payload is written into an anonymous memory file (`memfd`), loaded directly from the file descriptor, and the memfd is closed. No file is ever written to disk — even temporarily. Zero forensic trace for file scanners.
 *   **Zygisk API v5**: Utilizes the latest Zygisk API for maximum compatibility with Magisk, KernelSU, and APatch.
 *   **Config-Driven**: Simple JSON-based configuration. No hardcoded package names.
 *   **Zero Dependencies**: Native lightweight JSON parser with no external library dependencies.
@@ -38,9 +38,10 @@ flowchart TD
 
     subgraph App [" Target App Process (User UID) "]
         Fork((Fork))
-        Step4[Write RAM to App Cache]
-        Step5[dlopen Cache File]
-        Step6[unlink Cache File]
+        Step4[memfd_create anonymous mem]
+        Step5[Write Payload to memfd]
+        Step6[android_dlopen_ext with ANDROID_DLEXT_USE_LIBRARY_FD]
+        Step7[close(memfd)]
         Logic[Payload Active]
     end
 
@@ -52,8 +53,8 @@ flowchart TD
     Fork --> Step4
     Step4 --> Step5
     Step5 --> Step6
-    Step5 -.-> Logic
-    Step6 -.->|Artifact Removed| App
+    Step6 --> Logic
+    Step6 -.-> Step7
 ```
 
 ## Directory Structure
@@ -138,7 +139,8 @@ Your payload does not need to know about Zygisk. It acts as a standard shared li
 #include <android/log.h>
 #include <unistd.h>
 
-#define LOG_TAG "GhostPayload"
+// Choose a descriptive tag for your payload's log messages
+#define LOG_TAG "ExamplePayload"
 #define LOGI(...) __android_log_print(ANDROID_LOG_INFO, LOG_TAG, __VA_ARGS__)
 
 // This function runs automatically when dlopen() is called
@@ -173,7 +175,7 @@ use android_logger::Config;
 #[ctor]
 fn init() {
     android_logger::init_once(
-        Config::default().with_max_level(LevelFilter::Info).with_tag("GhostPayload")
+        Config::default().with_max_level(LevelFilter::Info).with_tag("ExamplePayload")
     );
 
     // logic hooking start here
@@ -183,7 +185,7 @@ fn init() {
 
 ## Technical Constraints
 
-*   **SELinux Compatibility**: This module uses disk injection (Write-Load-Unlink) instead of `memfd` to ensure maximum compatibility across all Android versions and SELinux contexts. `memfd` often fails on `untrusted_app` domains due to `execmem` restrictions.
+*   **SELinux Compatibility**: This module uses RAM-only injection via `memfd_create` + `android_dlopen_ext`. The payload is never written to disk, leaving no forensic trace. This approach works across all Android versions (10+) and SELinux domains including `untrusted_app`, as memfd pages have a dedicated SELinux context that permits executable mappings (per mo-jit project research).
 *   **Isolated Processes**: The loader automatically handles isolated processes (e.g., `:remote` services) by intelligently resolving the correct data directory path.
 
 ## Disclaimer
