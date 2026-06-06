@@ -174,6 +174,18 @@ jobs:
       - name: Include update.json in release
         run: cp update.json out/
 
+      - name: Commit update.json and CHANGELOG.md to main
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add update.json CHANGELOG.md
+          if ! git diff --staged --quiet; then
+            git commit -m "chore: update update.json and CHANGELOG.md for v${{ needs.check-version.outputs.version }} [skip ci]"
+            git push
+          else
+            echo "Nothing to commit — files unchanged"
+          fi
+
       - name: Create Release
         uses: softprops/action-gh-release@v2
         with:

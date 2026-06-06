@@ -16,14 +16,5 @@
 module/build
 module/release
 
-# CI-generated artifacts
-# NOTE: update.json is tracked in git as a fallback for manual/offline builds
-# but CI overwrites it during deployment via android.yml. The file uses
-# `git update-index --skip-worktree update.json` to prevent accidental
-# `git commit -a` from including local changes. When changing versionCode:
-#   1. git update-index --no-skip-worktree update.json
-#   2. Edit update.json
-#   3. git add update.json && git commit
-#   4. git update-index --skip-worktree update.json
-/CHANGELOG.md
+# Build output directory (not committed)
 /out/
