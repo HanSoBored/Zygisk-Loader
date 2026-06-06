@@ -7,7 +7,14 @@ plugins {
 }
 
 android {
+    namespace = "io.github.hansobored.zygisk.loader"
+    compileSdkVersion rootProject.androidCompileSdkVersion
+    ndkVersion rootProject.androidCompileNdkVersion
+    buildToolsVersion rootProject.androidBuildToolsVersion
+
     defaultConfig {
+        minSdkVersion rootProject.androidMinSdkVersion
+
         ndk {
             abiFilters.addAll(rootProject.abiList)
         }
@@ -17,6 +24,10 @@ android {
             }
         }
     }
+    compileOptions {
+        sourceCompatibility rootProject.androidSourceCompatibility
+        targetCompatibility rootProject.androidTargetCompatibility
+    }
     externalNativeBuild {
         cmake {
             path "src/main/c/CMakeLists.txt"
@@ -24,113 +35,235 @@ android {
     }
 }
 
+// ──────────────────────────────────────
+//  Helper: get sanitized zip filename for a build type
+//  Keep in sync with android.yml and update.json
+// ──────────────────────────────────────
+private def getZipFileName(String buildType) {
+    def bt = buildType ?: "unknown"
+    def rawName = (bt == "release")
+        ? "${rootProject.moduleId}-v${rootProject.verName}-release.zip"
+        : "${rootProject.moduleId}-v${rootProject.verName}.${rootProject.verCode}-${bt}.zip"
+    rawName.replaceAll(/[^a-zA-Z0-9._-]/, '_')
+}
+
+// ──────────────────────────────────────
+//  Helper: extract variant metadata (name, build type)
+// ──────────────────────────────────────
+private static Map variantMeta(variant) {
+    [lowered: variant.name.toLowerCase(),
+     capped:  variant.name.capitalize(),
+     buildType: variant.buildType?.toLowerCase()]
+}
+
+// ──────────────────────────────────────
+//  Helper: validate moduleId characters
+// ──────────────────────────────────────
+private static void validateModuleId(String moduleId) {
+    if (moduleId != moduleId.replaceAll(/[^a-zA-Z0-9._-]/, '_')) {
+        throw new GradleException(
+            "moduleId contains invalid characters: '$moduleId'. " +
+            "Use alphanumeric, dot, underscore, or hyphen only.")
+    }
+}
+
+// ──────────────────────────────────────
+//  Helper: build supported ABIs string from abiList
+// ──────────────────────────────────────
+private static String buildSupportedAbisString(List abiList) {
+    return abiList.collect {
+        switch (it) {
+            case "arm64-v8a": return "arm64"
+            case "armeabi-v7a": return "arm"
+            case "x86": return "x86"
+            case "x86_64": return "x64"
+            default: throw new GradleException("unsupported abi $it")
+        }
+    }.join(" ")
+}
+
+// ──────────────────────────────────────
+//  Helper: prepare module files (template → output)
+// ──────────────────────────────────────
+private def createPrepareModuleFilesTask(variant, variantLowered, variantCapped, buildTypeLowered) {
+    validateModuleId(rootProject.moduleId)
+    def supportedAbis = buildSupportedAbisString(rootProject.abiList)
+    def moduleDir = layout.buildDirectory.file("outputs/module/$variantLowered")
+
+    return tasks.register("prepareModuleFiles$variantCapped", Sync) {
+        group = "module"
+        dependsOn "assemble$variantCapped"
+        into moduleDir
+        duplicatesStrategy = DuplicatesStrategy.EXCLUDE
+        from(layout.projectDirectory.file("template")) {
+            exclude "module.prop"
+            filter(FixCrLfFilter, eol: FixCrLfFilter.CrLf.newInstance("lf"))
+
+            filesMatching(["customize.sh", "post-fs-data.sh", "service.sh"]) {
+                def tokens = [
+                    DEBUG: (buildTypeLowered == "debug" ? "true" : "false"),
+                    SONAME: rootProject.moduleId,
+                    SUPPORTED_ABIS: supportedAbis
+                ]
+                filter(ReplaceTokens, tokens: tokens)
+            }
+        }
+        from(layout.projectDirectory.file("template")) {
+            include "module.prop"
+            expand(
+                moduleId: rootProject.moduleId,
+                moduleName: rootProject.moduleName,
+                versionName: "${rootProject.verName} " +
+                    "(${rootProject.verCode}-${rootProject.commitHash}-${variantLowered})",
+                versionCode: rootProject.verCode
+            )
+        }
+        def libPath = "intermediates/stripped_native_libs/" +
+            "$variantLowered/strip${variantCapped}DebugSymbols/out/lib"
+        from(layout.buildDirectory.file(libPath)) {
+            into "lib"
+        }
+    }
+}
+
+// ──────────────────────────────────────
+//  Helper: SHA-256 checksum (release only)
+// ──────────────────────────────────────
+private def createGenerateSha256Task(variant, prepareTask, variantCapped, buildTypeLowered) {
+    def moduleDir = layout.buildDirectory.file("outputs/module/${variant.name.toLowerCase()}")
+
+    return tasks.register("generateSha256$variantCapped") {
+        group = "module"
+        dependsOn prepareTask
+        doLast {
+            if (buildTypeLowered == "release") {
+                fileTree(moduleDir.get().asFile).visit { details ->
+                    if (details.directory) return
+                    def md = MessageDigest.getInstance("SHA-256")
+                    details.file.eachByte(4096) { bytes, size ->
+                        md.update(bytes, 0, size)
+                    }
+                    def hex = md.digest().collect {
+                        String.format('%02x', it)
+                    }.join('')
+                    new File(details.file.path + ".sha256").text = hex
+                }
+            }
+        }
+    }
+}
+
+// ──────────────────────────────────────
+//  Helper: zip module into flashable archive
+// ──────────────────────────────────────
+private def createZipTask(variant, prepareTask, shaTask,
+                          variantCapped, variantLowered, buildTypeLowered) {
+    def moduleDir = layout.buildDirectory.file("outputs/module/$variantLowered")
+
+    def zipFileName = getZipFileName(buildTypeLowered)
+
+    return tasks.register("zip$variantCapped", Zip) {
+        group = "module"
+        dependsOn prepareTask, shaTask
+        archiveFileName = zipFileName
+        destinationDirectory = layout.projectDirectory.file("release").asFile
+        from moduleDir
+    }
+}
+
+// ──────────────────────────────────────
+//  Helper: check that ADB device is connected
+// ──────────────────────────────────────
+private def requireAdb() {
+    exec { commandLine "adb", "get-state" }
+}
+
+// ──────────────────────────────────────
+//  Helper: ADB push + install + reboot tasks
+// ──────────────────────────────────────
+private def createPushAndInstallTasks(variant, zipTask,
+                                      variantCapped, variantLowered, buildTypeLowered) {
+    def zipFileName = getZipFileName(buildTypeLowered)
+
+    def pushTask = tasks.register("push$variantCapped", Exec) {
+        group = "module"
+        dependsOn zipTask
+        doFirst {
+            try {
+                requireAdb()
+            } catch (Exception e) {
+                throw new GradleException(
+                    "ADB device not found. Please connect your device and verify with 'adb devices'. " +
+                    "Installation cannot proceed without an ADB connection.", e)
+            }
+        }
+        commandLine "adb", "push", zipTask.get().outputs.files.singleFile.path, "/data/local/tmp"
+    }
+
+    def installKsuTask = tasks.register("installKsu$variantCapped", Exec) {
+        group = "module"
+        dependsOn pushTask
+        doFirst { requireAdb() }
+        commandLine "adb", "shell", "su", "-c",
+            "/data/adb/ksud module install /data/local/tmp/$zipFileName"
+    }
+
+    def installMagiskTask = tasks.register("installMagisk$variantCapped", Exec) {
+        group = "module"
+        dependsOn pushTask
+        doFirst { requireAdb() }
+        commandLine "adb", "shell", "su", "-M", "-c",
+            "magisk --install-module /data/local/tmp/$zipFileName"
+    }
+
+    def rebootWarning = """\
+╔══════════════════════════════════════════════╗
+║  WARNING: Device will reboot in 3 seconds!   ║
+║  Press Ctrl+C to cancel.                     ║
+╚══════════════════════════════════════════════╝"""
+
+    registerRebootTask("KSU", installKsuTask, variantCapped, rebootWarning)
+    registerRebootTask("Magisk", installMagiskTask, variantCapped, rebootWarning)
+}
+
+private def registerRebootTask(String rootName, def dependsOnTask,
+                               String variantCapped, String rebootWarning) {
+    tasks.register("install${rootName}AndReboot${variantCapped}") {
+        group = "module"
+        dependsOn dependsOnTask
+        doFirst {
+            def confirm = project.findProperty('confirm') ?: 'false'
+            if (confirm == 'true') {
+                println rebootWarning
+                println "Auto-confirmed via -Pconfirm=true"
+            } else if (System.console() != null) {
+                println rebootWarning
+                println "WARNING: About to reboot device. Continue? [y/N] "
+                def response = System.console().readLine()
+                if (response != 'y' && response != 'Y') {
+                    throw new GradleException("Reboot cancelled by user")
+                }
+            } else {
+                throw new GradleException(
+                    "Reboot confirmation is required but no interactive terminal is available. " +
+                    "Run with -Pconfirm=true to skip confirmation and reboot immediately.")
+            }
+        }
+        doLast {
+            exec { commandLine "adb", "reboot" }
+        }
+    }
+}
+
 androidComponents {
     onVariants(selector().all()) { variant ->
-        def variantName = variant.name
-        def variantLowered = variantName.toLowerCase()
-        def variantCapped = variantName.capitalize()
-        def buildTypeLowered = variant.buildType?.toLowerCase()
-        
-        def supportedAbis = rootProject.abiList.collect {
-            switch (it) {
-                case "arm64-v8a": return "arm64"
-                case "armeabi-v7a": return "arm"
-                case "x86": return "x86"
-                case "x86_64": return "x64"
-                default: throw new GradleException("unsupported abi $it")
-            }
-        }.join(" ")
-
-        def moduleDir = layout.buildDirectory.file("outputs/module/$variantLowered")
-        def zipFileName
-        if (buildTypeLowered == "release") {
-            zipFileName = "${rootProject.moduleId}-v${rootProject.verName}-release.zip"
-        } else {
-            zipFileName = "${rootProject.moduleId}-v${rootProject.verName}.${rootProject.verCode}-${rootProject.commitHash}-${buildTypeLowered}.zip"
-        }
-
-        afterEvaluate {
-            def prepareModuleFilesTask = tasks.register("prepareModuleFiles$variantCapped", Sync) {
-                group = "module"
-                dependsOn "assemble$variantCapped"
-                into moduleDir
-                from(rootProject.layout.projectDirectory.file("README.md"))
-                from(layout.projectDirectory.file("template")) {
-                    exclude "module.prop", "customize.sh", "post-fs-data.sh", "service.sh"
-                    filter(FixCrLfFilter, eol: FixCrLfFilter.CrLf.newInstance("lf"))
-                }
-                from(layout.projectDirectory.file("template")) {
-                    include "module.prop"
-                    expand(
-                        moduleId: rootProject.moduleId,
-                        moduleName: rootProject.moduleName,
-                        versionName: "${rootProject.verName} (${rootProject.verCode}-${rootProject.commitHash}-${variantLowered})",
-                        versionCode: rootProject.verCode
-                    )
-                }
-                from(layout.projectDirectory.file("template")) {
-                    include "customize.sh", "post-fs-data.sh", "service.sh"
-                    def tokens = [
-                        DEBUG: (buildTypeLowered == "debug" ? "true" : "false"),
-                        SONAME: rootProject.moduleId,
-                        SUPPORTED_ABIS: supportedAbis
-                    ]
-                    filter(ReplaceTokens, tokens: tokens)
-                    filter(FixCrLfFilter, eol: FixCrLfFilter.CrLf.newInstance("lf"))
-                }
-                from(layout.buildDirectory.file("intermediates/stripped_native_libs/$variantLowered/strip${variantCapped}DebugSymbols/out/lib")) {
-                    into "lib"
-                }
-
-                doLast {
-                    fileTree(moduleDir.get().asFile).visit { details ->
-                        if (details.directory) return
-                        def md = MessageDigest.getInstance("SHA-256")
-                        details.file.eachByte(4096) { bytes, size ->
-                            md.update(bytes, 0, size)
-                        }
-                        new File(details.file.path + ".sha256").text = md.digest().encodeHex().toString()
-                    }
-                }
-            }
-
-            def zipTask = tasks.register("zip$variantCapped", Zip) {
-                group = "module"
-                dependsOn prepareModuleFilesTask
-                archiveFileName = zipFileName
-                destinationDirectory = layout.projectDirectory.file("release").asFile
-                from moduleDir
-            }
-
-            def pushTask = tasks.register("push$variantCapped", Exec) {
-                group = "module"
-                dependsOn zipTask
-                commandLine "adb", "push", zipTask.get().outputs.files.singleFile.path, "/data/local/tmp"
-            }
-
-            def installKsuTask = tasks.register("installKsu$variantCapped", Exec) {
-                group = "module"
-                dependsOn pushTask
-                commandLine "adb", "shell", "su", "-c", "/data/adb/ksud module install /data/local/tmp/$zipFileName"
-            }
-
-            def installMagiskTask = tasks.register("installMagisk$variantCapped", Exec) {
-                group = "module"
-                dependsOn pushTask
-                commandLine "adb", "shell", "su", "-M", "-c", "magisk --install-module /data/local/tmp/$zipFileName"
-            }
-
-            tasks.register("installKsuAndReboot$variantCapped", Exec) {
-                group = "module"
-                dependsOn installKsuTask
-                commandLine "adb", "reboot"
-            }
-
-            tasks.register("installMagiskAndReboot$variantCapped", Exec) {
-                group = "module"
-                dependsOn installMagiskTask
-                commandLine "adb", "reboot"
-            }
-        }
+        def meta = variantMeta(variant)
+        def prepareTask = createPrepareModuleFilesTask(
+            variant, meta.lowered, meta.capped, meta.buildType)
+        def shaTask = createGenerateSha256Task(
+            variant, prepareTask, meta.capped, meta.buildType)
+        def zipTask = createZipTask(
+            variant, prepareTask, shaTask, meta.capped, meta.lowered, meta.buildType)
+        createPushAndInstallTasks(variant, zipTask, meta.capped, meta.lowered, meta.buildType)
     }
 }
