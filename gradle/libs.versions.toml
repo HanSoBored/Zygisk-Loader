@@ -1,5 +1,10 @@
 [versions]
 agp = "8.11.0"
+# Pin NDK for reproducibility. Update when stable NDK releases are available
+# (check: https://github.com/android/ndk/wiki/Unsupported-Downloads).
+# Last NDK update tested: 2025-03-15 (r29). Verify C17 language features and
+# sanitizer compatibility when bumping.
+ndk = "29.0.14206865"
 
 [plugins]
 agp-app = { id = "com.android.application", version.ref = "agp" }

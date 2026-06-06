@@ -2,67 +2,96 @@ plugins {
     alias(libs.plugins.agp.app) apply false
 }
 
-def execute(String cmd, File currentWorkingDir = file("./"), String fallback = "") {
+def execQuietly(List<String> cmdParts, File currentWorkingDir = file("./"), String fallback = "") {
     try {
         def byteOut = new ByteArrayOutputStream()
         project.exec {
             workingDir = currentWorkingDir
-            commandLine = cmd.split("\s")
+            commandLine = cmdParts
             standardOutput = byteOut
             errorOutput = new ByteArrayOutputStream()
             ignoreExitValue = true
         }
         def result = byteOut.toString().trim()
         return result.isEmpty() ? fallback : result
-    } catch (Exception ignored) {
+    } catch (IOException | GradleException e) {
+        // GradleException covers exec failures; IOException covers stream ops.
+        project.logger.warn("execQuietly failed: cmd='{}', error='{}'", cmdParts, e.message)
         return fallback
     }
 }
 
-def gitCommitCount = execute("git rev-list HEAD --count", file("./"), "1").toInteger()
-def gitCommitHash = execute("git rev-parse --verify --short HEAD", file("./"), "unknown")
+// Note: Returns 1 on shallow clones (git rev-list HEAD --count limitation).
+// For deep/full clones the count is accurate. Used only in debug version naming,
+// so this is cosmetic — not a functional issue.
+def gitCommitCount = execQuietly(
+    ["git", "rev-list", "HEAD", "--count"], file("./"), "1"
+).toInteger()
+def gitCommitHash = execQuietly(
+    ["git", "rev-parse", "--verify", "--short", "HEAD"], file("./"), "unknown"
+)
 def versionFile = file("VERSION")
-def currentVerName = versionFile.exists() ? versionFile.text.trim() : "1.1.0"
+if (!versionFile.exists()) {
+    def msg = "VERSION file not found at ${versionFile.path}. " +
+        "Create it or restore from version control."
+    throw new GradleException(msg)
+}
+def currentVerName = versionFile.text.trim()
+
+// Parse versionCode from VERSION file (e.g., "1.1.3" → 1001003).
+// This is the authoritative versionCode formula — any downstream consumers
+// (update.json, CI scripts) MUST use this Gradle output, not duplicate the formula.
+def parseVersionCode(String ver) {
+    def parts = ver.tokenize('.')
+    if (parts.size() >= 3) {
+        try {
+            return parts[0].toInteger() * 1000000 + parts[1].toInteger() * 1000 + parts[2].toInteger()
+        } catch (NumberFormatException e) {
+            throw new GradleException("VERSION file contains non-numeric version part: '$ver'. " +
+                "Expected format: MAJOR.MINOR.PATCH (e.g., 1.2.3)")
+        }
+    }
+    // Fallback: VERSION file format is unexpected (< 3 parts).
+    throw new GradleException("VERSION file has insufficient version parts: '$ver'. " +
+        "Expected format: MAJOR.MINOR.PATCH (e.g., 1.2.3)")
+}
 
 ext {
+    // === Module Identity ===
     moduleId = "zygisk-loader"
     moduleName = "Zygisk Loader"
+
+    // === Versioning ===
     verName = currentVerName
-    verCode = gitCommitCount
+    verCode = parseVersionCode(currentVerName)
     commitHash = gitCommitHash
+
+    // === Platform Targets ===
     abiList = ["arm64-v8a", "armeabi-v7a", "x86", "x86_64"]
 
-    androidMinSdkVersion = 26
+    // === SDK / NDK ===
+    androidMinSdkVersion = 28
     androidTargetSdkVersion = 36
     androidCompileSdkVersion = 36
     androidBuildToolsVersion = "36.1.0"
-    androidCompileNdkVersion = "29.0.14206865"
+    androidCompileNdkVersion = libs.versions.ndk.get()
     androidSourceCompatibility = JavaVersion.VERSION_17
     androidTargetCompatibility = JavaVersion.VERSION_17
+}
+
+// Prints versionCode to stdout. CI captures this via `./gradlew -q printVersionCode`.
+// Uses System.out.print directly instead of Groovy's println to avoid potential
+// interference from Gradle output buffering. The `-q` flag suppresses Gradle's
+// own log output so only the versionCode number appears on stdout.
+tasks.register("printVersionCode") {
+    doLast {
+        System.out.print(verCode)
+        System.out.println()
+        System.out.flush()
+    }
 }
 
 tasks.register("clean", Delete) {
     delete rootProject.buildDir
 }
 
-subprojects {
-    afterEvaluate { project ->
-        if (project.plugins.hasPlugin("com.android.application")) {
-            android {
-                namespace = "io.github.hansobored.zygisk.loader"
-                compileSdkVersion rootProject.androidCompileSdkVersion
-                ndkVersion rootProject.androidCompileNdkVersion
-                buildToolsVersion rootProject.androidBuildToolsVersion
-
-                defaultConfig {
-                    minSdkVersion rootProject.androidMinSdkVersion
-                }
-
-                compileOptions {
-                    sourceCompatibility rootProject.androidSourceCompatibility
-                    targetCompatibility rootProject.androidTargetCompatibility
-                }
-            }
-        }
-    }
-}
