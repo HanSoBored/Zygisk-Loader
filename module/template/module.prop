@@ -4,4 +4,5 @@ version=${versionName}
 versionCode=${versionCode}
 author=HanSoBored
 description=Zygisk-Loader is a dynamic payload injection module
+# If you fork this repository, update the URL below to point to your fork's update.json.
 updateJson=https://raw.githubusercontent.com/HanSoBored/Zygisk-Loader/main/update.json

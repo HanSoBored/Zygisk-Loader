@@ -1,17 +1,21 @@
 # shellcheck disable=SC2034
 SKIPUNZIP=1
 
-DEBUG=@DEBUG@
-SONAME=@SONAME@
-SUPPORTED_ABIS="@SUPPORTED_ABIS@"
+# TMPDIR is set by Magisk/KernelSU during module installation,
+# but guard against unset variable just in case.
+: "${TMPDIR:=/dev/tmp}"
 
-if [ "$BOOTMODE" ] && [ "$KSU" ]; then
+DEBUG='@DEBUG@'
+SONAME='@SONAME@'
+SUPPORTED_ABIS='@SUPPORTED_ABIS@'
+
+if [ "$BOOTMODE" ] && { [ "$KSU" ] || [ "$KSU_VER_CODE" ] || [ -d /data/adb/ksu/ ]; }; then
 	ui_print "- Installing from KernelSU app"
 	ui_print "- KernelSU version: $KSU_KERNEL_VER_CODE (kernel) + $KSU_VER_CODE (ksud)"
-	if [ "$(which magisk)" ]; then
+	if [ "$(command -v magisk)" ]; then
 		ui_print "*********************************************************"
 		ui_print "! Multiple root implementation is NOT supported!"
-		ui_print "! Please uninstall Magisk before installing ReZygisk"
+		ui_print "! Please uninstall Magisk before installing $SONAME"
 		abort "*********************************************************"
 	fi
 elif [ "$BOOTMODE" ] && [ "$MAGISK_VER_CODE" ]; then
@@ -23,24 +27,24 @@ else
 	abort "*********************************************************"
 fi
 
-VERSION=$(grep_prop version "${TMPDIR}/module.prop")
-ui_print "- Installing $SONAME $VERSION"
+MODULE_VERSION=$(grep_prop version "${TMPDIR}/module.prop")
+ui_print "- Installing $SONAME $MODULE_VERSION"
 
 # check architecture
-support=false
+SUPPORTED=false
 for abi in $SUPPORTED_ABIS; do
 	if [ "$ARCH" == "$abi" ]; then
-		support=true
+		SUPPORTED=true
 	fi
 done
-if [ "$support" == "false" ]; then
+if [ "$SUPPORTED" == "false" ]; then
 	abort "! Unsupported platform: $ARCH"
 else
 	ui_print "- Device platform: $ARCH"
 fi
 
 ui_print "- Extracting verify.sh"
-unzip -o "$ZIPFILE" 'verify.sh' -d "$TMPDIR" >&2
+unzip -o "$ZIPFILE" 'verify.sh' -d "$TMPDIR" >/dev/null 2>&1
 if [ ! -f "$TMPDIR/verify.sh" ]; then
 	ui_print "*********************************************************"
 	ui_print "! Unable to extract verify.sh!"
@@ -50,41 +54,50 @@ fi
 . "$TMPDIR/verify.sh"
 extract "$ZIPFILE" 'customize.sh' "$TMPDIR/.vunzip"
 extract "$ZIPFILE" 'verify.sh' "$TMPDIR/.vunzip"
-extract "$ZIPFILE" 'sepolicy.rule' "$TMPDIR"
+if unzip -l "$ZIPFILE" | grep -qE '[[:space:]]sepolicy\.rule$'; then
+  extract "$ZIPFILE" 'sepolicy.rule' "$TMPDIR"
+fi
 
 ui_print "- Extracting module files"
 extract "$ZIPFILE" 'module.prop' "$MODPATH"
 extract "$ZIPFILE" 'post-fs-data.sh' "$MODPATH"
 extract "$ZIPFILE" 'service.sh' "$MODPATH"
-mv "$TMPDIR/sepolicy.rule" "$MODPATH"
+if [ -f "$TMPDIR/sepolicy.rule" ]; then
+  mv "$TMPDIR/sepolicy.rule" "$MODPATH"
+fi
 
-HAS32BIT=false && ([ $(getprop ro.product.cpu.abilist32) ] || [ $(getprop ro.system.product.cpu.abilist32) ]) && HAS32BIT=true
+HAS32BIT=false
+[ -n "$(getprop ro.product.cpu.abilist32)" ] && HAS32BIT=true
+[ -n "$(getprop ro.system.product.cpu.abilist32)" ] && HAS32BIT=true
 
-mkdir "$MODPATH/zygisk"
+mkdir "$MODPATH/zygisk" || abort "Failed to create $MODPATH/zygisk"
+
+# Helper: extract and rename a single ABI library
+extract_and_rename() {
+	local dir="$1" name="$2"
+	extract "$ZIPFILE" "lib/$dir/lib$SONAME.so" "$MODPATH/zygisk" true
+	mv "$MODPATH/zygisk/lib$SONAME.so" "$MODPATH/zygisk/$name.so"
+}
+
+# Helper: extract ABI-specific libraries with renaming
+extract_abi_libs() {
+	local arch32_dir="$1" arch64_dir="$2"
+	if [ "$HAS32BIT" = true ]; then
+		ui_print "- Extracting ${arch32_dir##*/} libraries"
+		extract_and_rename "$arch32_dir" "${arch32_dir##*/}"
+	fi
+	ui_print "- Extracting ${arch64_dir##*/} libraries"
+	extract_and_rename "$arch64_dir" "${arch64_dir##*/}"
+}
 
 if [ "$ARCH" = "x86" ] || [ "$ARCH" = "x64" ]; then
-	if [ "$HAS32BIT" = true ]; then
-		ui_print "- Extracting x86 libraries"
-		extract "$ZIPFILE" "lib/x86/lib$SONAME.so" "$MODPATH/zygisk/" true
-		mv "$MODPATH/zygisk/lib$SONAME.so" "$MODPATH/zygisk/x86.so"
-	fi
-
-	ui_print "- Extracting x64 libraries"
-	extract "$ZIPFILE" "lib/x86_64/lib$SONAME.so" "$MODPATH/zygisk" true
-	mv "$MODPATH/zygisk/lib$SONAME.so" "$MODPATH/zygisk/x86_64.so"
+	extract_abi_libs "x86" "x86_64"
 else
-	if [ "$HAS32BIT" = true ]; then
-		extract "$ZIPFILE" "lib/armeabi-v7a/lib$SONAME.so" "$MODPATH/zygisk" true
-		mv "$MODPATH/zygisk/lib$SONAME.so" "$MODPATH/zygisk/armeabi-v7a.so"
-	fi
-
-	ui_print "- Extracting arm64 libraries"
-	extract "$ZIPFILE" "lib/arm64-v8a/lib$SONAME.so" "$MODPATH/zygisk" true
-	mv "$MODPATH/zygisk/lib$SONAME.so" "$MODPATH/zygisk/arm64-v8a.so"
+	extract_abi_libs "armeabi-v7a" "arm64-v8a"
 fi
 
 ui_print "- Setting permissions"
-mkdir -p "$MODPATH/config"
+mkdir -p "$MODPATH/config" || abort "Failed to create $MODPATH/config"
 cat > "$MODPATH/config/target.json" << 'EOF'
 [
   {
@@ -93,5 +106,17 @@ cat > "$MODPATH/config/target.json" << 'EOF'
   }
 ]
 EOF
+# For multiple target applications, add more entries. Example:
+# [
+#   { "app": "com.example.app1", "lib": "/data/adb/modules/zygisk-loader/config/payload1.so" },
+#   { "app": "com.example.app2", "lib": "/data/adb/modules/zygisk-loader/config/payload2.so" }
+# ]
+ui_print "*********************************************************"
+ui_print "! IMPORTANT: Edit /data/adb/modules/zygisk-loader/config/target.json"
+ui_print "! Replace the placeholder values with your actual"
+ui_print "! target app package names and payload library paths."
+ui_print "! Without proper configuration, the module will not"
+ui_print "! inject into any application."
+ui_print "*********************************************************"
 set_perm_recursive "$MODPATH" 0 0 0755 0644
 set_perm_recursive "$MODPATH/config" 0 0 0755 0644

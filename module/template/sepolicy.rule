@@ -1,0 +1,4 @@
+# No additional SELinux rules needed.
+# The module operates within Zygisk's allowed domain and writes to
+# app cache directories which are already accessible via the Zygisk API.
+# This file is intentionally left empty for maximum compatibility.
