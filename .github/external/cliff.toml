@@ -37,6 +37,13 @@ filter_unconventional = false
 # process each line of a commit as an individual commit
 split_commits = false
 # regex for preprocessing the commit messages
+# NOTE: If you fork this project, update the URL below to match your repository.
+# Otherwise issue links in the changelog will point to the original repo.
+# Suggested alternative for CI: use a GitHub Actions variable like
+#   ${{ github.repository }}
+# in a sed command to replace the URL at changelog generation time.
+# The comment above documents this limitation; forkers should modify the URL
+# in the pattern below before generating changelogs.
 commit_preprocessors = [
     { pattern = '\((\w+\s)?#([0-9]+)\)', replace = "([#${2}](https://github.com/HanSoBored/Zygisk-Loader/issues/${2}))" },
 ]
