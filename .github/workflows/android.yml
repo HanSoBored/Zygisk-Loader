@@ -165,17 +165,10 @@ jobs:
             echo "ERROR: invalid versionCode: '$VERSION_CODE'"
             exit 1
           fi
-          # Build URL variable to keep heredoc lines under 100 chars
-          ZIP_URL="https://github.com/${{ github.repository }}/releases/download/"\
-            "v${VERSION}/zygisk-loader-v${VERSION}-release.zip"
-          cat > update.json << EOF
-{
-  "version": "v${VERSION}",
-  "versionCode": ${VERSION_CODE},
-  "zipUrl": "${ZIP_URL}",
-  "changelog": "https://raw.githubusercontent.com/${{ github.repository }}/main/CHANGELOG.md"
-}
-EOF
+          # Build URL variable for use in JSON
+          ZIP_URL="https://github.com/${{ github.repository }}/releases/download/v${VERSION}/zygisk-loader-v${VERSION}-release.zip"
+          printf '{\n  "version": "v%s",\n  "versionCode": %s,\n  "zipUrl": "%s",\n  "changelog": "https://raw.githubusercontent.com/%s/main/CHANGELOG.md"\n}\n' \
+            "$VERSION" "$VERSION_CODE" "$ZIP_URL" "${{ github.repository }}" > update.json
           echo "Generated update.json with versionCode=${VERSION_CODE}"
 
       - name: Include update.json in release
