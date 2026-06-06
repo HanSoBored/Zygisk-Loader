@@ -41,7 +41,7 @@ flowchart TD
         Step4[memfd_create anonymous mem]
         Step5[Write Payload to memfd]
         Step6[android_dlopen_ext with ANDROID_DLEXT_USE_LIBRARY_FD]
-        Step7[close(memfd)]
+        Step7["close(memfd)"]
         Logic[Payload Active]
     end
 

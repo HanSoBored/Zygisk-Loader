@@ -3,12 +3,10 @@ cmake_minimum_required(VERSION 3.22.1)
 # update the minimum version to match your NDK's bundled CMake.
 project(zygisk-loader)
 
-# C17 is the highest C standard fully supported by NDK r26+'s compiler.
-# C23 features like typeof(), bool, and static_assert are available as
-# extensions in C17 mode but are not required for this codebase.
-# C23 was tried first but caused compatibility issues with some NDK headers
-# (e.g., stdbit.h, unreachable()) — C17 is the pragmatic choice.
-set(CMAKE_C_STANDARD 17)
+# C23 with NDK 29 (Clang 21) compiles cleanly with all warning flags.
+# Originally C23 was tried with NDK r26 (Clang 17) and caused issues
+# with stdbit.h and unreachable(), but those are resolved in NDK 29.
+set(CMAKE_C_STANDARD 23)
 set(CMAKE_C_STANDARD_REQUIRED ON)
 
 option(ENABLE_SANITIZERS "Enable AddressSanitizer and UndefinedBehaviorSanitizer" OFF)

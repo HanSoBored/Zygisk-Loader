@@ -63,19 +63,14 @@ static bool g_payload_injected = false;
 // --- UTILITY FUNCTIONS ---
 
 // Portable secure memory zeroing — prevents compiler elision.
-// explicit_bzero() requires __ANDROID_API__ >= 28 (Android 9 / API 28),
-// which is our minSdkVersion — safe for all supported devices.
-// memset_s() is not reliably available in NDK across all target levels.
-// __attribute__((noinline)) guards against LTO-based elision of the
-// volatile-store fallback (API < 28).
+// explicit_bzero() was removed in NDK 29, and memset_s() is not
+// reliably available across NDK versions. The volatile-store approach
+// works on all API levels.
+// __attribute__((noinline)) guards against LTO-based elision.
 static __attribute__((noinline)) void secure_zero(void *ptr, size_t n) {
     if (!ptr || n == 0) return;
-#if defined(__ANDROID_API__) && __ANDROID_API__ >= 28
-    explicit_bzero(ptr, n);
-#else
     volatile unsigned char *p = (volatile unsigned char *)ptr;
     for (size_t i = 0; i < n; i++) p[i] = 0;
-#endif
 }
 
 // Check if a character is valid in a JSON primitive token (number, bool, null).
