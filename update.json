@@ -1,6 +1,6 @@
 {
-  "version": "v2.0.1",
-  "versionCode": 2000001,
-  "zipUrl": "https://github.com/HanSoBored/Zygisk-Loader/releases/download/v2.0.1/zygisk-loader-v2.0.1-release.zip",
+  "version": "v2.0.2",
+  "versionCode": 2000002,
+  "zipUrl": "https://github.com/HanSoBored/Zygisk-Loader/releases/download/v2.0.2/zygisk-loader-v2.0.2-release.zip",
   "changelog": "https://raw.githubusercontent.com/HanSoBored/Zygisk-Loader/main/CHANGELOG.md"
 }

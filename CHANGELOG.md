@@ -1,3 +1,25 @@
+## [2.0.2] - 2026-08-16
+
+### <!-- 1 -->🐛 Bug Fixes
+
+- Scan past non-matching config entries ([cd4d90c](cd4d90cfb4491347a687573ce4f2ce960574be1e))
+
+
+### Build
+
+- Pin NDK r30 — r29 install lacks linux-arm64 prebuilts ([291204e](291204ef3d5cfffa27f8f42153fad2480b710824))
+
+
+### <!-- 7 -->⚙️ Miscellaneous Tasks
+
+- Bump version to 2.0.2 ([43d5e13](43d5e13b2cd4f37695e59c20d4650ea563e6d7d5))
+
+
+### Ci
+
+- Install NDK r30 on CI runner ([d918ab8](d918ab84bff1f6d1d62ad1b18e51cc05a4f0c0e2))
+
+
 ## [2.0.1] - 2026-06-06
 
 ### <!-- 0 -->🚀 Features
