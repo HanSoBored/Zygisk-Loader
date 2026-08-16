@@ -443,10 +443,20 @@ static bool scan_app_entry(const char **cursor, const char *end_limit,
 
     // Pass 1: find the matching "app" key
     const char *scan = obj_start;
-    if (!scan_json_object_for_key(&scan, end_limit, "app", sizeof("app") - 1, &val_start, &val_len))
+    if (!scan_json_object_for_key(&scan, end_limit, "app", sizeof("app") - 1, &val_start, &val_len)) {
+        *cursor = scan;
         return false;
-    if (val_len != app_len || memcmp(val_start, app_name, app_len) != 0)
+    }
+    if (val_len != app_len || memcmp(val_start, app_name, app_len) != 0) {
+        // scan_json_object_for_key() only advanced past the "app" pair, so the
+        // caller would re-scan this object's body and trip the string-separator
+        // check on "lib" — and, worse, never reach later config entries.
+        // Consume the whole object to preserve the "cursor past closing '}'"
+        // invariant and let get_payload_path() continue at the next entry.
+        const char *obj_end = skip_json_value(obj_start - 1, end_limit, 0);
+        *cursor = obj_end ? obj_end : scan;
         return false;
+    }
 
     // Pass 2: re-scan from object body start to find "lib"
     scan = obj_start;
