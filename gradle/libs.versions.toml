@@ -4,8 +4,8 @@ agp = "8.11.0"
 # (check: https://github.com/android/ndk/wiki/Unsupported-Downloads).
 # Last NDK update tested: 2025-03-15 (r29). Verify C17 language features and
 # sanitizer compatibility when bumping.
-# r30 is used because this machine's r29 install only ships linux-x86_64
-# prebuilts, which cannot run on the arm64 host chroot.
+# r30 is pinned because it is the only NDK on the arm64 build host, and CI
+# installs it explicitly (runner images do not ship it with an accepted license).
 ndk = "30.0.14904198"
 
 [plugins]

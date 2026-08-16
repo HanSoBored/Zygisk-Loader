@@ -102,6 +102,14 @@ jobs:
       - name: Grant execute permission for gradlew
         run: chmod +x gradlew
 
+      # NDK r30 is pinned in gradle/libs.versions.toml but runner images only
+      # ship older NDKs with pre-accepted licenses, so AGP's auto-install of
+      # ndk;30 fails with LicenceNotAcceptedException. Install it explicitly.
+      - name: Install NDK r30
+        uses: android-actions/setup-android@v3
+        with:
+          packages: 'ndk;30.0.14904198'
+
       - name: Build with Gradle
         run: ./gradlew :module:zipRelease
 
